@@ -10,13 +10,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 # mpp: Baltimore minor privilege permits (outdoor stuff?)
 # rich: Properties for permits for which work is expected to exceed $50,000
 # mgc: residential housing permits since 2000 for Montgomery County
-
-dfs = pickle.load(open('data/md_dfs.pkl', 'rb'))
-bho = dfs['bho']
-mpp = dfs['mpp']
-rich = dfs['rich']
-mgc = dfs['mgc']
-del dfs
+bho = pickle.load(open('data/bho.pkl', 'rb'))
+mpp = pickle.load(open('data/mpp.pkl', 'rb'))
+rich = pickle.load(open('data/rich.pkl', 'rb'))
+mgc = pickle.load(open('data/mgc.pkl', 'rb'))
 
 # Can we get the number of project transitions in bho stuff?
 ex_v_prop = pd.crosstab(bho['existing_use'], bho['prop_use'])
@@ -62,7 +59,7 @@ def get_count_df(descs, tokenizer, preprocessor=desc_cleaner):
 
     return pd.DataFrame({'feature': vocab_list,
                          'count': count_counts,
-                         'tfidf': tfidf_counts})
+                         'tfidf': tfidf_counts}).sort_values('tfidf', ascending=False)
 
 
 punkt_sent = nltk.data.load('tokenizers/punkt/english.pickle')
@@ -70,8 +67,6 @@ punkt_sent = nltk.data.load('tokenizers/punkt/english.pickle')
 # ===
 
 feature_counts = get_count_df(bho['description'].values, punkt_sent.tokenize)
-
-feature_counts.sort_values('tfidf', ascending=False, inplace=True)
 
 'seperate permit will be required for TKTK'
 '(use) TKTKTK'
@@ -83,8 +78,6 @@ feature_counts.sort_values('tfidf', ascending=False, inplace=True)
 
 feature_counts = get_count_df(mpp['description'].values, punkt_sent.tokenize)
 
-feature_counts.sort_values('tfidf', ascending=False, inplace=True)
-
 '<NUM> [a-z]* windows'
 # In general, pretty pure descriptions. Split on commas, etc.
 
@@ -93,3 +86,22 @@ feature_counts.sort_values('tfidf', ascending=False, inplace=True)
 feature_counts = get_count_df(rich['description'].values, punkt_sent.tokenize)
 
 'int alts', 'ext alts', 'int/ext alts'
+'residential', 'institutional', etc.
+
+feature_counts = get_count_df(
+    rich['use_description'].values, punkt_sent.tokenize)
+
+len(set(rich['description']) & set(rich['use_description']))
+# 48
+
+# ==
+
+feature_counts = get_count_df(mgc['description'].values, punkt_sent.tokenize)
+
+'deck', 'shed', 'sunroom', 'porch'
+
+# ==
+
+used_cities = set(mgc['city'].ix[mgc['sq_ft'] > -1].value_counts().ix[mgc['city'].ix[mgc['sq_ft'] > -1].value_counts() > 10].reset_index()['index'])
+
+sns.violinplot(x='city', y='sq_ft', data=mgc.ix[(mgc['sq_ft'] > -1) & (mgc['city'].apply(lambda x: x in used_cities))])

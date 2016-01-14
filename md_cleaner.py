@@ -1,9 +1,14 @@
 import ujson as json
 from itertools import chain
-import numpy as np
 import pandas as pd
-import pickle
 import re
+
+
+def get_square_footage(x):
+    a = re.match('([0-9]+)([ \-\'])*sq(uare)?\.?([ \-]?f(ee)?t\.?)?', x)
+    if a:
+        return int(a.group(1))
+    return -1
 
 
 def trim_left_zeroes_and_space(x):
@@ -67,7 +72,10 @@ def get_cleanish_dfs(jsns):
     dfs = {x: pd.DataFrame.from_records(jsns[x]) for x in jsns.keys()}
 
     # dfs['bho'].columns
-    # Index([':created_at', ':created_meta', ':id', ':meta', ':position', ':sid', ':updated_at', ':updated_meta', 'block', 'cost_est', 'dateexpire', 'dateissue', 'existing_use', 'lot', 'permitdescription', 'permitnum', 'prop_use', 'propertyaddress'], dtype='object')
+    # Index([':created_at', ':created_meta', ':id', ':meta', ':position',
+    # ':sid', ':updated_at', ':updated_meta', 'block', 'cost_est',
+    # 'dateexpire', 'dateissue', 'existing_use', 'lot', 'permitdescription',
+    # 'permitnum', 'prop_use', 'propertyaddress'], dtype='object')
 
     # permitdescription - trim outer whitespace, rename description
     #  The same as description in mgc? Free text chunks?
@@ -89,8 +97,8 @@ def get_cleanish_dfs(jsns):
     dfs['bho'].ix[:, 'cost_est'] = dfs['bho'].ix[:, 'cost_est'].astype(float)
 
     cols = ['existing_use', 'prop_use']
-    dfs['bho'].ix[:, cols] = dfs['bho'].ix[:, cols].fillna('<Missing>').applymap(
-        lambda x: x.strip()).apply(pd.Categorical)
+    dfs['bho'].ix[:, cols] = dfs['bho'].ix[:, cols].fillna(
+        '<Missing>').applymap(lambda x: x.strip()).apply(pd.Categorical)
 
     cols = ['dateexpire', 'dateissue']
     dfs['bho'].ix[:, cols] = dfs['bho'].ix[:, cols].apply(
@@ -105,6 +113,8 @@ def get_cleanish_dfs(jsns):
                                'permitnum': 'permit_number',
                                'propertyaddress': 'property_address'},
                       inplace=True)
+
+    dfs['bho']['sq_ft'] = dfs['bho']['description'].apply(get_square_footage)
 
     # ===
 
@@ -147,8 +157,8 @@ def get_cleanish_dfs(jsns):
 
     cols = ['city', 'postdir', 'predir', 'state',
             'stname', 'usecode', 'worktype', 'zip']
-    dfs['mgc'].ix[:, cols] = dfs['mgc'].ix[:, cols].fillna('<Missing>').applymap(
-        lambda x: x.strip()).apply(pd.Categorical)
+    dfs['mgc'].ix[:, cols] = dfs['mgc'].ix[:, cols].fillna(
+        '<Missing>').applymap(lambda x: x.strip()).apply(pd.Categorical)
 
     dfs['mgc'].ix[:, 'stno'] = dfs['mgc'].ix[:, 'stno'].fillna('').apply(
         trim_left_zeroes_and_space).astype('category')
@@ -158,6 +168,9 @@ def get_cleanish_dfs(jsns):
 
     dfs['mgc']['property_address'] = dfs['mgc'][
         'location'].apply(lambda x: x['human_address'])
+
+    for col in ['latitude', 'longitude']:
+        dfs['mgc'][col] = dfs['mgc']['location'].apply(lambda x: x[col])
 
     dfs['mgc'].ix[:, 'description'] = dfs['mgc'].ix[:, 'description'].fillna(
         '').apply(lambda x: ' '.join(x.strip().lower().split()))
@@ -176,6 +189,8 @@ def get_cleanish_dfs(jsns):
                                'usecode': 'use_code',
                                'worktype': 'work_type'},
                       inplace=True)
+
+    dfs['mgc']['sq_ft'] = dfs['mgc']['description'].apply(get_square_footage)
 
     # ===
 
@@ -205,23 +220,32 @@ def get_cleanish_dfs(jsns):
         '- Mixed Permit Type', '').split('-')[0].strip()).astype('category')
 
     for val in ['city', 'state', 'zip']:
-        dfs['rich'][val] = dfs['rich']['location_1'].apply(lambda x: x[val] if val in x else '<Missing>')
+        dfs['rich'][val] = dfs['rich']['location_1'].apply(
+            lambda x: x[val] if val in x else '<Missing>')
 
     cols = ['tract'] + ['city', 'state', 'zip']
-    dfs['rich'].ix[:, cols] = dfs['rich'].ix[:, cols].fillna('<Missing>').applymap(
-        lambda x: x.strip()).apply(pd.Categorical)
+    dfs['rich'].ix[:, cols] = dfs['rich'].ix[:, cols].fillna(
+        '<Missing>').applymap(lambda x: x.strip()).apply(pd.Categorical)
+
+    for col in ['latitude', 'longitude']:
+        dfs['rich'][col] = dfs['rich']['location_1'].apply(lambda x: x[col])
 
     dfs['rich']['property_address'] = dfs['rich'][
         'location_1'].apply(lambda x: x['human_address'])
 
     for col in ['description', 'usedescription']:
         dfs['rich'].ix[:, col] = dfs['rich'].ix[:, col].fillna(
-        '').apply(lambda x: ' '.join(x.strip().lower().split()))
+            '').apply(lambda x: ' '.join(x.strip().lower().split()))
 
     dfs['rich'].rename(columns={'issuedate': 'issue_date',
                                 'location_1': 'location',
                                 'usedescription': 'use_description'},
                        inplace=True)
+
+    dfs['rich']['sq_ft_1'] = dfs['rich'][
+        'description'].apply(get_square_footage)
+    dfs['rich']['sq_ft_2'] = dfs['rich'][
+        'use_description'].apply(get_square_footage)
 
     # ===
 
@@ -240,12 +264,16 @@ def get_cleanish_dfs(jsns):
     # permit_number
     # propertyaddress - rename property_address
 
+    for col in ['latitude', 'longitude']:
+        dfs['mpp'][col] = dfs['mpp']['location'].apply(lambda x: x[col])
+
     for val in ['city', 'state', 'zip']:
-        dfs['mpp'][val] = dfs['rich']['location'].apply(lambda x: x[val] if val in x else '<Missing>')
+        dfs['mpp'][val] = dfs['rich']['location'].apply(
+            lambda x: x[val] if val in x else '<Missing>')
 
     cols = ['block', 'lot'] + ['city', 'state', 'zip']
-    dfs['mpp'].ix[:, cols] = dfs['mpp'].ix[:, cols].fillna('<Missing>').applymap(
-        lambda x: x.strip()).apply(pd.Categorical)
+    dfs['mpp'].ix[:, cols] = dfs['mpp'].ix[:, cols].fillna(
+        '<Missing>').applymap(lambda x: x.strip()).apply(pd.Categorical)
 
     dfs['mpp'].ix[:, 'description'] = dfs['mpp'].ix[:, 'description'].fillna(
         '').apply(lambda x: ' '.join(x.strip().lower().split()))
@@ -253,34 +281,35 @@ def get_cleanish_dfs(jsns):
     dfs['mpp'].rename(columns={'propertyaddress': 'property_address'},
                       inplace=True)
 
+    dfs['mpp']['sq_ft'] = dfs['mpp']['description'].apply(get_square_footage)
+
     # ===
 
     return dfs
 
 
 # Do _something_ intelligent with the description fields
-
 # bring dfs['mgc']['work_type'] and dfs['rich']['type'] into alignment
 # Align dfs['rich']['use_description'] into alignment
+
 
 def main():
     data_path_fmt = 'data/formatted-data/{}.json'.format
 
-    pairs = [('mpp', 'bwg6-98m2'),
-             ('bho', 'fesm-tgxf'),
-             ('rich', 'k6m8-62kn'),
-             ('mgc', 'm88u-pqki')]
+    pairs = [('mpp', 'bwg6-98m2'), ('bho', 'fesm-tgxf'),
+             ('rich', 'k6m8-62kn'), ('mgc', 'm88u-pqki')]
 
     jsns = {key: json.load(open(data_path_fmt(val)))[
         val] for key, val in pairs}
 
     # Various stat things
-    get_facts(jsns)
+    # get_facts(jsns)
 
     dfs = get_cleanish_dfs(jsns)
+    for key in dfs:
+        dfs[key].to_csv('data/{}.csv'.format(key), index=False)
+        dfs[key].to_pickle('data/{}.pkl'.format(key))
 
-    with open('data/md_dfs.pkl', 'wb') as outfile:
-        pickle.dump(dfs, outfile, 2)
 
 if __name__ == "__main__":
     main()
